@@ -1,0 +1,43 @@
+# Local builds and environments
+/build/
+/out/
+/output/
+/.venv/
+/.uv-cache/
+/.vs/
+/.vscode/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.pyd
+*.dll
+*.exe
+*.pdb
+/python_src/chess_engine.pyi
+/CMakeUserPresets.json
+
+# Model weights, corpora and generated experiment results
+/data/
+/training_data/
+/sim_results/
+/wandb/
+/python_src/replay_buffer/
+/python_src/checkpoints*/
+/python_src/raw_pgns/
+/python_src/wandb/
+/python_src/eval_pgns/
+*.pt
+*.ckpt
+*.onnx
+*.npz
+*.log
+*.sqlite*
+
+# Personal credentials and configuration
+.env
+.env.*
+!.env.example
+*token*.txt
+/lichess_token.txt
+/sync_to_sim.local.json

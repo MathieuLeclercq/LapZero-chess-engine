@@ -1,0 +1,65 @@
+[project]
+name = "lapzero-chess"
+version = "0.1.0"
+description = "Moteur d'echecs AlphaZero-like, coeur C++ et pipeline d'entrainement PyTorch"
+readme = "README.md"
+requires-python = ">=3.13"
+
+# Python 3.13 est un plancher, pas un choix de confort : CMakeLists.txt exige
+# find_package(Python3 3.13 ...) et le module compile est un cp313.
+dependencies = [
+    # Coeur entrainement
+    # Plafond < 2.14 : l'index cu130 publie 2.13.0 et 2.14.x, le projet reste
+    # sur la version torch validee par les campagnes (2.13).
+    "torch>=2.13,<2.14",
+    "lightning>=2.6",
+    "numpy>=2.0",
+    "onnx>=1.22",           # importe par lib.py pour l'export du modele
+    # Donnees et outils
+    "chess>=1.11",          # diagnostic uniquement (dev_tools) et conversion PGN
+    "zstandard>=0.25",      # lecture des dumps Lichess compresses
+    "whr>=2.2",             # Whole History Rating, importe par tournament_elo.py
+    "wandb>=0.19",
+    "tqdm>=4.66",
+    # Interface graphique et reseau
+    "pygame>=2.6",
+    "requests>=2.32",
+    "urllib3>=2.5",
+    "beautifulsoup4>=4.13",
+    "psutil>=7.0",
+    # Build : invoque par l'etape post-build de CMake pour generer les stubs .pyi
+    "pybind11-stubgen>=2.5",
+    "onnxruntime==1.24.3",
+    "backoff>=2.2.1",
+    "rich>=15.0.0",
+]
+
+# ---------------------------------------------------------------------------
+# torch avec CUDA
+# ---------------------------------------------------------------------------
+# Sur Windows, les wheels torch de PyPI sont CPU uniquement. Il faut l'index
+# de PyTorch pour obtenir une build CUDA.
+#
+# cu130 est retenu depuis le 2026-10-05 : le portable de developpement a un
+# GPU Blackwell (sm_120), et le build cu126 de torch 2.13 ne contient aucun
+# noyau pour cette architecture, donc l'entrainement GPU y etait impossible.
+# torch 2.13.0+cu130 existe en wheel cp313 win_amd64 (verifie le 2026-10-05)
+# et le pilote 595.95 supporte CUDA 13.x. L'inference du bot passe par ONNX
+# Runtime, pas par ce paquet, et n'est pas concernee.
+#
+# Pour changer de version CUDA, remplacer cu130 ci-dessous puis relancer
+# `uv lock`. Le pilote NVIDIA doit supporter la version choisie ; une RTX 3070
+# (Ampere, sm_86) reste compatible avec cu130.
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
