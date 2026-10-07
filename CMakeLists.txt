@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.24)
 project(Chess)
 enable_testing()
 cmake_policy(SET CMP0135 NEW)
@@ -8,7 +8,7 @@ find_package(OpenMP REQUIRED)
 find_package(Threads REQUIRED)
 
 # ==========================================
-# RÉCUPÉRATION DE ONNX RUNTIME (C++)
+# RÉCUPÉRATION DE ONNX RUNTIME (C++, Windows x64)
 # ==========================================
 set(ONNXRUNTIME_VERSION "1.24.3")
 set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-win-x64-gpu-${ONNXRUNTIME_VERSION}.zip")
@@ -16,7 +16,8 @@ include(FetchContent)
 
 FetchContent_Declare(
   onnxruntime
-  URL ${ONNXRUNTIME_URL}
+  URL "${ONNXRUNTIME_URL}"
+  URL_HASH SHA256=f2af33fea71f477027961b8027e7496ab01c6b962ae4f596bf8163192b03b326
 )
 FetchContent_MakeAvailable(onnxruntime)
 
@@ -90,8 +91,9 @@ set_tests_properties(chess_perft_calibre PROPERTIES TIMEOUT 300)
 # ==========================================
 function(copy_onnx_runtime target_name)
     add_custom_command(TARGET ${target_name} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${ONNXRUNTIME_DLL} $<TARGET_FILE_DIR:${target_name}>)
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${ONNXRUNTIME_DLL}" "$<TARGET_FILE_DIR:${target_name}>"
+        VERBATIM)
 endfunction()
 
 add_executable(search_timing_tests tests/cpp/test_search_timing.cpp)
@@ -167,10 +169,11 @@ add_executable(selfplay_phase_bench tests/cpp/selfplay_phase_bench.cpp)
 target_link_libraries(selfplay_phase_bench PRIVATE chess_core)
 copy_onnx_runtime(selfplay_phase_bench)
 add_custom_command(TARGET selfplay_phase_bench POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${ONNXRUNTIME_SHARED_DLL} $<TARGET_FILE_DIR:selfplay_phase_bench>
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${ONNXRUNTIME_CUDA_DLL} $<TARGET_FILE_DIR:selfplay_phase_bench>)
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${ONNXRUNTIME_SHARED_DLL}" "$<TARGET_FILE_DIR:selfplay_phase_bench>"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${ONNXRUNTIME_CUDA_DLL}" "$<TARGET_FILE_DIR:selfplay_phase_bench>"
+    VERBATIM)
 add_test(NAME selfplay_phase_bench_smoke
     COMMAND selfplay_phase_bench --fake --repetitions 1 --rounds 2)
 set_tests_properties(selfplay_phase_bench_smoke PROPERTIES
@@ -181,10 +184,11 @@ add_executable(evaluator_batch_bench tests/cpp/evaluator_batch_bench.cpp)
 target_link_libraries(evaluator_batch_bench PRIVATE chess_core)
 copy_onnx_runtime(evaluator_batch_bench)
 add_custom_command(TARGET evaluator_batch_bench POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${ONNXRUNTIME_SHARED_DLL} $<TARGET_FILE_DIR:evaluator_batch_bench>
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${ONNXRUNTIME_CUDA_DLL} $<TARGET_FILE_DIR:evaluator_batch_bench>)
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${ONNXRUNTIME_SHARED_DLL}" "$<TARGET_FILE_DIR:evaluator_batch_bench>"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${ONNXRUNTIME_CUDA_DLL}" "$<TARGET_FILE_DIR:evaluator_batch_bench>"
+    VERBATIM)
 add_test(NAME evaluator_batch_bench_smoke
     COMMAND evaluator_batch_bench --fake --batches 1 4 8
             --repetitions 2 --rounds 2)
@@ -216,25 +220,26 @@ target_link_libraries(chess_engine PRIVATE chess_core)
 # Génération des stubs ET copie de la DLL ONNX
 add_custom_command(TARGET chess_engine POST_BUILD
     # Copie de la DLL principale
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${ONNXRUNTIME_DLL}
-        ${CMAKE_SOURCE_DIR}/python_src/onnxruntime.dll
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${ONNXRUNTIME_DLL}"
+        "${CMAKE_SOURCE_DIR}/python_src/onnxruntime.dll"
     
     # Ajout pour le GPU
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${ONNXRUNTIME_SHARED_DLL}
-        ${CMAKE_SOURCE_DIR}/python_src/onnxruntime_providers_shared.dll
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${ONNXRUNTIME_CUDA_DLL}
-        ${CMAKE_SOURCE_DIR}/python_src/onnxruntime_providers_cuda.dll
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${ONNXRUNTIME_SHARED_DLL}"
+        "${CMAKE_SOURCE_DIR}/python_src/onnxruntime_providers_shared.dll"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${ONNXRUNTIME_CUDA_DLL}"
+        "${CMAKE_SOURCE_DIR}/python_src/onnxruntime_providers_cuda.dll"
         
     # Génération des stubs (.pyi) en utilisant l'exécutable Python trouvé dynamiquement
-    COMMAND ${CMAKE_COMMAND} -E env "PYTHONPATH=${CMAKE_SOURCE_DIR}/python_src" 
-            ${Python3_EXECUTABLE} -m pybind11_stubgen chess_engine 
+    COMMAND "${CMAKE_COMMAND}" -E env "PYTHONPATH=${CMAKE_SOURCE_DIR}/python_src"
+            "${Python3_EXECUTABLE}" -m pybind11_stubgen chess_engine
             --enum-class-locations "PieceType:chess_engine"
             --output-dir "${CMAKE_SOURCE_DIR}/python_src"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/python_src"
     COMMENT "Copie de onnxruntime.dll et génération des stubs..."
+    VERBATIM
 )
 
 # Force CMake à exporter le module compilé dans le dossier python_src/
