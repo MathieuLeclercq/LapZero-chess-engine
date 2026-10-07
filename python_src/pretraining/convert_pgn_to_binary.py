@@ -10,14 +10,16 @@ import chess.pgn
 import chess_engine
 from core.lib import encode_move, gestion_promo_dame
 import os
+import argparse
+from pathlib import Path
 import io
 from concurrent.futures import ProcessPoolExecutor
 
 # ============================================================
 #                     CONFIGURATION
 # ============================================================
-INPUT_PGN = r"D:\dataset_cpp_chess\top_games_quality.pgn"
-OUTPUT_DIR = r"D:\dataset_cpp_chess\dataset_shards"
+INPUT_PGN = _runtime.REPO_ROOT / "training_data" / "top_games_quality.pgn"
+OUTPUT_DIR = _runtime.REPO_ROOT / "training_data" / "dataset_shards"
 POSITIONS_PER_SHARD = 200_000  # Chaque fichier fera environ 1.5 Go
 MAX_WORKERS = os.cpu_count()  # Utilise tous les cœurs (ex: 8 ou 16)
 BATCH_SIZE_GAMES = 500  # Nombre de parties envoyées à chaque worker
@@ -34,7 +36,7 @@ PROMO_MAP = {
 # ============================================================
 #                     FONCTION WORKER
 # ============================================================
-def worker_task(game_texts, worker_id, shard_id):
+def worker_task(game_texts, worker_id, shard_id, output_dir=OUTPUT_DIR):
     """Traitement lourd effectué par un cœur du processeur."""
     X, Y_p, Y_v = [], [], []
 
@@ -73,7 +75,7 @@ def worker_task(game_texts, worker_id, shard_id):
 
     # Sauvegarde du shard
     shard_name = f"shard_{worker_id}_{shard_id}.npz"
-    path = os.path.join(OUTPUT_DIR, shard_name)
+    path = os.path.join(output_dir, shard_name)
     np.savez(path, x=np.array(X, dtype=np.uint8),
              y_p=np.array(Y_p, dtype=np.int64),
              y_v=np.array(Y_v, dtype=np.float32))
@@ -83,16 +85,27 @@ def worker_task(game_texts, worker_id, shard_id):
 # ============================================================
 #                     BOUCLE PRINCIPALE
 # ============================================================
-def main():
-    if not os.path.exists(OUTPUT_DIR):
-        os.makedirs(OUTPUT_DIR)
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Conversion PGN vers shards NumPy")
+    parser.add_argument("--input-pgn", type=Path, default=INPUT_PGN)
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument("--workers", type=int, default=MAX_WORKERS or 1)
+    args = parser.parse_args(argv)
+    if args.workers < 1:
+        parser.error("--workers doit etre strictement positif")
+    return args
 
-    file_size = os.path.getsize(INPUT_PGN)
-    print(f"Lancement de la conversion sur {MAX_WORKERS} cœurs...")
+
+def main(argv=None):
+    args = parse_args(argv)
+    file_size = args.input_pgn.stat().st_size
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Lancement de la conversion sur {args.workers} cœurs...")
     print(f"Taille du fichier PGN : {file_size / (1024 ** 3):.2f} Go")
 
-    with open(INPUT_PGN, 'r', encoding='utf-8') as f:
-        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+    with open(args.input_pgn, 'r', encoding='utf-8') as f:
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
             futures = []
             current_batch = []
             shard_id = 0
@@ -111,7 +124,7 @@ def main():
                     if current_batch:
                         if len(current_batch) >= BATCH_SIZE_GAMES:
                             futures.append(
-                                executor.submit(worker_task, current_batch, len(futures), shard_id))
+                                executor.submit(worker_task, current_batch, len(futures), shard_id, args.output_dir))
                             current_batch = []
                             shard_id += 1
 
@@ -131,7 +144,7 @@ def main():
 
             # Envoyer le reliquat
             if current_batch:
-                futures.append(executor.submit(worker_task, current_batch, len(futures), shard_id))
+                futures.append(executor.submit(worker_task, current_batch, len(futures), shard_id, args.output_dir))
 
             print(f"\nLecture terminée. Attente de la finalisation des {len(futures)} workers...")
 
@@ -149,7 +162,7 @@ def main():
     print(f"\n\nTerminé !")
     print(f"Total positions générées : {total_positions}")
     print(f"Total parties traitées : {games_read}")
-    print(f"Shards sauvegardés dans : {OUTPUT_DIR}")
+    print(f"Shards sauvegardés dans : {args.output_dir}")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ if __package__ in (None, ""):
 import _runtime
 
 import os
+import argparse
 from core.data_paths import ONNX_DIR, TOURNAMENTS_DIR
 import itertools
 import signal
@@ -13,7 +14,6 @@ import psutil
 import json
 import numpy as np
 import multiprocessing as mp
-from whr import whole_history_rating
 
 import chess_engine
 from core.lib import (
@@ -21,7 +21,7 @@ from core.lib import (
     coords_to_uci)
 from evaluation.stockfish_player import StockfishPlayer
 
-STOCKFISH_PATH = r"D:\logiciels\stockfish\stockfish.exe"
+STOCKFISH_PATH = "stockfish"
 
 # ============================================================
 #                     CONFIGURATION
@@ -110,12 +110,12 @@ def play_game_worker(args):
     Fonction exécutée par un sous-processus.
     Instancie les moteurs localement pour éviter les erreurs de Pickling.
     """
-    white_h, black_h, white_p, black_p, sims, sf_anchor_elo = args
+    white_h, black_h, white_p, black_p, sims, sf_anchor_elo, stockfish_path = args
     sf_hash_str = f"STOCKFISH_FIXED_{sf_anchor_elo}"
 
     # 1. Instanciation locale du modèle Blanc
     if white_h == sf_hash_str:
-        model_white = StockfishPlayer(STOCKFISH_PATH, elo=sf_anchor_elo)
+        model_white = StockfishPlayer(stockfish_path, elo=sf_anchor_elo)
     else:
         evaluator_w = chess_engine.ONNXEvaluator(os.path.join(CHECKPOINT_DIR, white_p))
         model_white = chess_engine.MCTS(evaluator_w, tt_size=131071)
@@ -123,7 +123,7 @@ def play_game_worker(args):
 
     # 2. Instanciation locale du modèle Noir
     if black_h == sf_hash_str:
-        model_black = StockfishPlayer(STOCKFISH_PATH, elo=sf_anchor_elo)
+        model_black = StockfishPlayer(stockfish_path, elo=sf_anchor_elo)
     else:
         evaluator = chess_engine.ONNXEvaluator(os.path.join(CHECKPOINT_DIR, black_p))
         model_black = chess_engine.MCTS(evaluator, tt_size=131071)
@@ -136,22 +136,25 @@ def play_game_worker(args):
     return white_h, black_h, white_p, black_p, winner, moves
 
 
-def generate_game_tasks(pairs_to_play, hash_to_filename):
+def generate_game_tasks(pairs_to_play, hash_to_filename, stockfish_path=STOCKFISH_PATH):
     """Générateur qui produit les arguments de chaque partie individuelle à jouer."""
     for h1, h2 in pairs_to_play:
         p1 = hash_to_filename[h1]
         p2 = hash_to_filename[h2]
         for g in range(GAMES_PER_PAIR):
             if g % 2 == 0:
-                yield h1, h2, p1, p2, SIMULATIONS_EVAL, STOCKFISH_ANCHOR_ELO
+                yield h1, h2, p1, p2, SIMULATIONS_EVAL, STOCKFISH_ANCHOR_ELO, stockfish_path
             else:
-                yield h2, h1, p2, p1, SIMULATIONS_EVAL, STOCKFISH_ANCHOR_ELO
+                yield h2, h1, p2, p1, SIMULATIONS_EVAL, STOCKFISH_ANCHOR_ELO, stockfish_path
 
 
 # ============================================================
 #                     LOGIQUE DU TOURNOI (REFACTORISÉE)
 # ============================================================
 def load_tournament_state():
+    # Cet ancien outil utilise l'API WHR historique, pas celle de whr 2.x.
+    from whr import whole_history_rating
+
     TOURNAMENTS_DIR.mkdir(parents=True, exist_ok=True)
     if os.path.exists(WHR_STATE_FILE):
         whr = whole_history_rating.Base.load_base(WHR_STATE_FILE)
@@ -285,7 +288,7 @@ def build_match_schedule(whr, all_hashes, ranked_existing_hashes, hash_to_filena
 # ============================================================
 #                     ORCHESTRATEUR PRINCIPAL
 # ============================================================
-def run_tournament():
+def run_tournament(stockfish_path=STOCKFISH_PATH):
     whr, stats = load_tournament_state()
     hash_to_filename, all_hashes = scan_available_models()
 
@@ -302,7 +305,7 @@ def run_tournament():
         print("\nAucun match à jouer avec la configuration actuelle.")
         return
 
-    tasks = generate_game_tasks(pairs_to_play, hash_to_filename)
+    tasks = generate_game_tasks(pairs_to_play, hash_to_filename, stockfish_path)
     games_completed = 0
     match_scores = {}
     match_games_count = {}
@@ -400,7 +403,15 @@ def run_tournament():
     )
 
 
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Tournoi de modeles contre Stockfish")
+    parser.add_argument("--stockfish", default=STOCKFISH_PATH,
+                        help="Executable Stockfish, sinon stockfish dans le PATH")
+    return parser.parse_args(argv)
+
+
 if __name__ == "__main__":
+    args = parse_args()
     # Indispensable sous Windows pour éviter les conflits CUDA / Multiprocessing
     mp.set_start_method('spawn', force=True)
-    run_tournament()
+    run_tournament(args.stockfish)

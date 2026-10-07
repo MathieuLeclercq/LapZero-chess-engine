@@ -6,6 +6,8 @@ if __package__ in (None, ""):
 import _runtime
 
 import sys
+import argparse
+import os
 import threading
 import time
 import math
@@ -76,7 +78,7 @@ def _journaliser(message: str) -> None:
         pass
 
 
-def _construire_evaluateur():
+def _construire_evaluateur(model_path=MODEL_PATH):
     """Le GPU d'abord, le CPU en repli.
 
     Le batching ne rend vraiment que sur GPU : la meme recherche passe de 284 a
@@ -85,25 +87,26 @@ def _construire_evaluateur():
     repli silencieux vaut mieux qu'un moteur qui refuse de demarrer.
     """
     try:
-        return chess_engine.ONNXEvaluator(MODEL_PATH, True), "GPU"
+        return chess_engine.ONNXEvaluator(str(model_path), True), "GPU"
     except Exception as e:
         print(f"info string GPU indisponible, repli sur le CPU : {e}", flush=True)
-        return chess_engine.ONNXEvaluator(MODEL_PATH, False), "CPU"
+        return chess_engine.ONNXEvaluator(str(model_path), False), "CPU"
 
 
 # ============================================================
 #                     MOTEUR UCI
 # ============================================================
 class UCIEngine:
-    def __init__(self, evaluator=None, mcts=None):
+    def __init__(self, evaluator=None, mcts=None, model_path=None):
+        self.model_path = Path(model_path or os.environ.get("LAPZERO_MODEL_PATH") or MODEL_PATH)
         self.board = chess_engine.Chessboard()
         # Injection pour les tests : sans elle, construire un UCIEngine exige un
-        # modele ONNX, et MODEL_PATH pointe vers une autre machine.
+        # modele ONNX present sur la machine.
         if evaluator is not None:
             self.evaluator = evaluator
             self.provider = "injecte"
         else:
-            self.evaluator, self.provider = _construire_evaluateur()
+            self.evaluator, self.provider = _construire_evaluateur(self.model_path)
         self.mcts = (mcts if mcts is not None
                      else chess_engine.MCTS(self.evaluator, tt_size=4_000_000))
         if mcts is None:
@@ -150,13 +153,12 @@ class UCIEngine:
             if command == "uci":
                 print("id name Lc0 Custom")
                 print("id author Mathieu Leclercq")
-                print("option name WeightsFile type string default <internal>")
                 print("uciok")
                 sys.stdout.flush()
                 # Bilan de configuration : stderr pour le direct, journal pour
                 # l'apres-coup.
                 _journaliser(
-                    f"uci.py pret : modele {Path(MODEL_PATH).name}, "
+                    f"uci.py pret : modele {self.model_path.name}, "
                     f"{self.provider}, lot {MCTS_BATCH_SIZE}, "
                     f"lot fixe {MCTS_FIXED_BATCH}, "
                     f"workers {MCTS_WORKER_COUNT}, TT 4000000")
@@ -536,6 +538,22 @@ class UCIEngine:
         sys.stdout.flush()
 
 
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Moteur UCI LapZero")
+    parser.add_argument("--model", type=Path,
+                        default=Path(os.environ.get("LAPZERO_MODEL_PATH") or MODEL_PATH),
+                        help="Modele ONNX (sinon LAPZERO_MODEL_PATH, puis modele historique)")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if not args.model.is_file():
+        print(f"Modele ONNX introuvable : {args.model}. Utilisez --model chemin.onnx.",
+              file=sys.stderr)
+        raise SystemExit(2)
+    UCIEngine(model_path=args.model).loop()
+
+
 if __name__ == "__main__":
-    engine = UCIEngine()
-    engine.loop()
+    main()

@@ -2,5 +2,5 @@
 import _runtime
 
 if __name__ == "__main__":
-    from core.uci import UCIEngine
-    UCIEngine().loop()
+    from core.uci import main
+    main()
